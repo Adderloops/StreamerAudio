@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.GraphicEq
@@ -172,15 +173,9 @@ fun StreamerAudioApp(viewModel: MainViewModel, onLogin: () -> Unit) {
     }
     val fullscreen = state.fullscreen && state.videoEnabled && state.playback.mediaItem != null
     val activity = LocalContext.current.findActivity()
-    // No onDispose on purpose: the activity is recreated when it rotates, and resetting the
-    // orientation while it is being destroyed would make it flip back and forth.
+    // Full screen keeps whatever orientation the phone is in (portrait mounts included).
     LaunchedEffect(fullscreen, activity) {
         val window = activity?.window ?: return@LaunchedEffect
-        activity.requestedOrientation = if (fullscreen) {
-            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
         val bars = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
         if (fullscreen) {
             bars.systemBarsBehavior =
@@ -410,6 +405,9 @@ private fun android.content.Context.findActivity(): android.app.Activity? {
 @Composable
 private fun FullscreenVideo(player: androidx.media3.common.Player?, onExit: () -> Unit) {
     BackHandler(onBack = onExit)
+    val portrait = LocalConfiguration.current.screenHeightDp > LocalConfiguration.current.screenWidthDp
+    // Portrait starts zoomed to fill the screen (sides cropped); landscape starts with the whole picture.
+    var fill by rememberSaveable(portrait) { mutableStateOf(portrait) }
     Box(
         Modifier
             .fillMaxSize()
@@ -424,10 +422,26 @@ private fun FullscreenVideo(player: androidx.media3.common.Player?, onExit: () -
                     setBackgroundColor(android.graphics.Color.BLACK)
                 }
             },
-            update = { view -> view.player = player },
+            update = { view ->
+                view.player = player
+                view.resizeMode = if (fill) {
+                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                } else {
+                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                }
+            },
             onRelease = { view -> view.player = null },
             modifier = Modifier.fillMaxSize()
         )
+        IconButton(
+            onClick = { fill = !fill },
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(16.dp)
+                .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+        ) {
+            Icon(Icons.Default.AspectRatio, if (fill) "Show whole picture" else "Fill screen", tint = Color.White)
+        }
         IconButton(
             onClick = onExit,
             modifier = Modifier
