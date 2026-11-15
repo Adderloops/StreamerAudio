@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.adder.streameraudio",
+      "sha256_cert_fingerprints": ["EC:73:0C:20:BD:F4:A9:2A:47:4B:BC:AE:F3:A6:F1:79:40:73:CD:20:B8:BB:96:42:83:D2:9F:8A:5B:AD:31:87"]
+    }
+  }
+]

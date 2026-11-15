@@ -14,7 +14,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.player.streameraudio"
+        applicationId = "com.adder.streameraudio"
         minSdk = 26
         targetSdk = 36
         versionCode = 3
@@ -27,7 +27,16 @@ android {
             ?: localProperties.getProperty("TWITCH_CLIENT_ID")
             ?: ""
         buildConfigField("String", "TWITCH_CLIENT_ID", "\"$twitchClientId\"")
-        buildConfigField("String", "TWITCH_REDIRECT_URL", "\"https://streameraudio-twitch-backend.netlify.app/oauth/callback\"")
+        // Sign-in callback. Must be an https URL on a domain that serves /.well-known/assetlinks.json
+        // for this app's package and signing certificate (see site/README.md).
+        val redirectUrl = (project.findProperty("TWITCH_REDIRECT_URL") as String?)
+            ?: System.getenv("TWITCH_REDIRECT_URL")
+            ?: localProperties.getProperty("TWITCH_REDIRECT_URL")
+            ?: "https://adderloops.github.io/oauth/callback"
+        val redirectUri = java.net.URI(redirectUrl)
+        buildConfigField("String", "TWITCH_REDIRECT_URL", "\"$redirectUrl\"")
+        manifestPlaceholders["oauthHost"] = redirectUri.host
+        manifestPlaceholders["oauthPath"] = redirectUri.path
         manifestPlaceholders["appLabel"] = "Streamer Audio"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
