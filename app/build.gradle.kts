@@ -1,3 +1,4 @@
+import java.net.URI
 import java.util.Properties
 
 plugins {
@@ -33,7 +34,7 @@ android {
             ?: System.getenv("TWITCH_REDIRECT_URL")
             ?: localProperties.getProperty("TWITCH_REDIRECT_URL")
             ?: "https://adderloops.github.io/oauth/callback"
-        val redirectUri = java.net.URI(redirectUrl)
+        val redirectUri = URI(redirectUrl)
         buildConfigField("String", "TWITCH_REDIRECT_URL", "\"$redirectUrl\"")
         manifestPlaceholders["oauthHost"] = redirectUri.host
         manifestPlaceholders["oauthPath"] = redirectUri.path
