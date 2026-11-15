@@ -348,7 +348,7 @@ fun StreamerAudioApp(viewModel: MainViewModel, onLogin: () -> Unit) {
                 composable("category") { ContentScreen(state, onRetry = viewModel::reloadCurrentSection, onLoadMore = viewModel::loadNextPage, favoriteKeys = favoriteKeys, onToggleFavorite = viewModel::toggleFavorite, onItem = playAndOpen) }
                 composable("search") {
                     if (state.authenticated) SearchScreen(state, viewModel, favoriteKeys, playAndOpen)
-                    else LoginPrompt(onLogin)
+                    else GuestChannelScreen(playAndOpen)
                 }
                 composable("library") {
                     LibraryScreen(state, viewModel, favoriteKeys, playAndOpen)
@@ -499,6 +499,71 @@ private fun AppNavigationRail(route: String, nav: NavHostController) {
                 icon = { Icon(destination.icon, destination.label) }, label = { Text(destination.label) }
             )
         }
+    }
+}
+
+/** Turns "Name", "@name" or a twitch.tv link into a lowercase channel login, or null if invalid. */
+private fun parseChannelLogin(input: String): String? {
+    var text = input.trim().lowercase()
+    if (text.isEmpty()) return null
+    text = text.removePrefix("https://").removePrefix("http://").removePrefix("www.").removePrefix("m.")
+    if (text.startsWith("twitch.tv/")) text = text.removePrefix("twitch.tv/")
+    text = text.substringBefore('/').substringBefore('?').removePrefix("@")
+    return text.takeIf { Regex("^[a-z0-9_]{3,25}$").matches(it) }
+}
+
+/** Search replacement for guests: Twitch search needs a login, so play a channel by its exact name. */
+@Composable
+private fun GuestChannelScreen(onItem: (MediaItem) -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var invalid by rememberSaveable { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val submit: () -> Unit = {
+        val login = parseChannelLogin(query)
+        if (login == null) {
+            invalid = true
+        } else {
+            invalid = false
+            focusManager.clearFocus()
+            val extras = android.os.Bundle().apply { putString("userLogin", login) }
+            onItem(
+                MediaItem.Builder()
+                    .setMediaId(login)
+                    .setMediaMetadata(
+                        androidx.media3.common.MediaMetadata.Builder()
+                            .setTitle(login)
+                            .setArtist(login)
+                            .setIsBrowsable(false)
+                            .setIsPlayable(true)
+                            .setExtras(extras)
+                            .build()
+                    )
+                    .build()
+            )
+        }
+    }
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it; invalid = false },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Channel name") },
+            placeholder = { Text("e.g. shroud, or a twitch.tv link") },
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            trailingIcon = {
+                FilledTonalIconButton(onClick = submit) { Icon(Icons.Default.PlayArrow, "Play channel") }
+            },
+            isError = invalid,
+            supportingText = if (invalid) { { Text("Enter a valid channel name (3-25 letters, numbers or _)") } } else null,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { submit() })
+        )
+        Text(
+            "Type the exact name of a channel to listen or watch. Tap the heart on the player to add it to Favorites, then open it from Library.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
