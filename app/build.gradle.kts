@@ -38,7 +38,7 @@ android {
         buildConfigField("String", "TWITCH_REDIRECT_URL", "\"$redirectUrl\"")
         manifestPlaceholders["oauthHost"] = redirectUri.host
         manifestPlaceholders["oauthPath"] = redirectUri.path
-        manifestPlaceholders["appLabel"] = "Streamer Audio"
+        manifestPlaceholders["appLabel"] = "Streamer Audio Adder"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
