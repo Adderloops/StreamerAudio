@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -173,30 +174,19 @@ fun StreamerAudioApp(viewModel: MainViewModel, onLogin: () -> Unit) {
     }
     val fullscreen = state.fullscreen && state.videoEnabled && state.playback.mediaItem != null
     val activity = LocalContext.current.findActivity()
-    // Full screen keeps whatever orientation the phone is in (portrait mounts included).
-    LaunchedEffect(fullscreen, activity) {
+    // Full screen keeps whatever orientation the phone is in. Portrait shows video + chat with the
+    // system bars visible; landscape is immersive.
+    val portraitScreen = LocalConfiguration.current.screenHeightDp > LocalConfiguration.current.screenWidthDp
+    val immersive = fullscreen && !portraitScreen
+    LaunchedEffect(immersive, activity) {
         val window = activity?.window ?: return@LaunchedEffect
         val bars = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-        if (fullscreen) {
+        if (immersive) {
             bars.systemBarsBehavior =
                 androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             bars.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
         } else {
             bars.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-        }
-    }
-    LaunchedEffect(route, state.authenticated) {
-        when (route) {
-            "browse" -> viewModel.loadSection(CustomMediaLibrarySessionCallback.TOP_GAMES, "Browse")
-            "live" -> viewModel.loadSection(CustomMediaLibrarySessionCallback.TOP_STREAMS, "Live")
-            "library" -> if (state.currentParentId == CustomMediaLibrarySessionCallback.RECENTS) {
-                viewModel.loadSection(CustomMediaLibrarySessionCallback.RECENTS, "Recently played")
-            } else {
-                viewModel.loadSection(CustomMediaLibrarySessionCallback.FAVORITES, "Favorites")
-            }
-            "following" -> if (state.authenticated) {
-                viewModel.loadSection(CustomMediaLibrarySessionCallback.FOLLOWED, "Following")
-            }
         }
     }
     if (state.settings.legacyProxyNoticePending) {
@@ -386,6 +376,9 @@ fun StreamerAudioApp(viewModel: MainViewModel, onLogin: () -> Unit) {
         if (fullscreen) {
             FullscreenVideo(
                 player = if (state.playback.connected) viewModel.player else null,
+                portrait = portraitScreen,
+                channelLogin = state.playback.mediaItem?.mediaMetadata?.extras?.getString("userLogin"),
+                chat = viewModel::chatMessages,
                 onExit = { viewModel.setFullscreen(false) }
             )
         }
@@ -403,53 +396,145 @@ private fun android.content.Context.findActivity(): android.app.Activity? {
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun FullscreenVideo(player: androidx.media3.common.Player?, onExit: () -> Unit) {
+private fun VideoSurface(player: androidx.media3.common.Player?, fill: Boolean, modifier: Modifier) {
+    AndroidView(
+        factory = { context ->
+            PlayerView(context).apply {
+                useController = false
+                keepScreenOn = true
+                setBackgroundColor(android.graphics.Color.BLACK)
+            }
+        },
+        update = { view ->
+            view.player = player
+            view.resizeMode = if (fill) {
+                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            } else {
+                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+            }
+        },
+        onRelease = { view -> view.player = null },
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun FullscreenVideo(
+    player: androidx.media3.common.Player?,
+    portrait: Boolean,
+    channelLogin: String?,
+    chat: (String) -> kotlinx.coroutines.flow.Flow<com.player.streameraudio.data.chat.ChatMessage>,
+    onExit: () -> Unit
+) {
     BackHandler(onBack = onExit)
-    val portrait = LocalConfiguration.current.screenHeightDp > LocalConfiguration.current.screenWidthDp
-    // Portrait starts zoomed to fill the screen (sides cropped); landscape starts with the whole picture.
-    var fill by rememberSaveable(portrait) { mutableStateOf(portrait) }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .zIndex(30f)
-            .background(Color.Black)
-    ) {
-        AndroidView(
-            factory = { context ->
-                PlayerView(context).apply {
-                    useController = false
-                    keepScreenOn = true
-                    setBackgroundColor(android.graphics.Color.BLACK)
-                }
-            },
-            update = { view ->
-                view.player = player
-                view.resizeMode = if (fill) {
-                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                } else {
-                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                }
-            },
-            onRelease = { view -> view.player = null },
-            modifier = Modifier.fillMaxSize()
-        )
-        IconButton(
-            onClick = { fill = !fill },
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp)
-                .background(Color.Black.copy(alpha = 0.45f), CircleShape)
-        ) {
-            Icon(Icons.Default.AspectRatio, if (fill) "Show whole picture" else "Fill screen", tint = Color.White)
-        }
+    val exitButton: @Composable (Modifier) -> Unit = { modifier ->
         IconButton(
             onClick = onExit,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-                .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+            modifier = modifier.background(Color.Black.copy(alpha = 0.45f), CircleShape)
         ) {
             Icon(Icons.Default.FullscreenExit, "Exit full screen", tint = Color.White)
+        }
+    }
+    if (portrait) {
+        // Like the Twitch app held upright: video across the top, live chat underneath.
+        Column(
+            Modifier
+                .fillMaxSize()
+                .zIndex(30f)
+                .background(Color(0xFF0E0E10))
+                .systemBarsPadding()
+        ) {
+            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)) {
+                VideoSurface(player, fill = false, modifier = Modifier.fillMaxSize())
+                exitButton(Modifier.align(Alignment.TopEnd).padding(8.dp))
+            }
+            ChatPanel(channelLogin, chat, Modifier.fillMaxWidth().weight(1f))
+        }
+    } else {
+        var fill by rememberSaveable { mutableStateOf(false) }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .zIndex(30f)
+                .background(Color.Black)
+        ) {
+            VideoSurface(player, fill = fill, modifier = Modifier.fillMaxSize())
+            IconButton(
+                onClick = { fill = !fill },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(16.dp)
+                    .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+            ) {
+                Icon(Icons.Default.AspectRatio, if (fill) "Show whole picture" else "Fill screen", tint = Color.White)
+            }
+            exitButton(Modifier.align(Alignment.TopEnd).padding(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun ChatPanel(
+    channelLogin: String?,
+    chat: (String) -> kotlinx.coroutines.flow.Flow<com.player.streameraudio.data.chat.ChatMessage>,
+    modifier: Modifier
+) {
+    if (channelLogin.isNullOrBlank()) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            Text("Chat is not available for this stream.", color = Color.White.copy(alpha = 0.7f))
+        }
+        return
+    }
+    val messages = remember(channelLogin) {
+        androidx.compose.runtime.mutableStateListOf<com.player.streameraudio.data.chat.ChatMessage>()
+    }
+    LaunchedEffect(channelLogin) {
+        // Reconnect for as long as the panel is on screen.
+        while (true) {
+            try {
+                chat(channelLogin).collect { message ->
+                    messages.add(message)
+                    if (messages.size > 200) messages.removeAt(0)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+            }
+            kotlinx.coroutines.delay(3_000)
+        }
+    }
+    val listState = rememberLazyListState()
+    LaunchedEffect(messages.lastOrNull()?.id) {
+        if (messages.isNotEmpty()) listState.scrollToItem(messages.lastIndex)
+    }
+    if (messages.isEmpty()) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            Text("Connecting to chat…", color = Color.White.copy(alpha = 0.7f))
+        }
+        return
+    }
+    val fallbackNameColor = MaterialTheme.colorScheme.primary
+    LazyColumn(
+        modifier = modifier,
+        state = listState,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        items(messages, key = { it.id }) { message ->
+            val nameColor = message.color
+                ?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
+                ?: fallbackNameColor
+            Text(
+                androidx.compose.ui.text.buildAnnotatedString {
+                    pushStyle(androidx.compose.ui.text.SpanStyle(color = nameColor, fontWeight = FontWeight.Bold))
+                    append(message.name)
+                    pop()
+                    append(": ")
+                    append(message.text)
+                },
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
     }
 }

@@ -64,6 +64,7 @@ data class MainUiState(
 class MainViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val playbackConnection: PlaybackConnection,
+    private val chatClient: com.player.streameraudio.data.chat.TwitchChatClient,
     private val settingsRepository: PlaybackSettingsRepository,
     private val tokenStore: TokenStore,
     private val legacyAuthMigrator: LegacyAuthMigrator,
@@ -224,6 +225,7 @@ class MainViewModel @Inject constructor(
         if (!enabled) _uiState.update { it.copy(fullscreen = false) }
         playbackConnection.setVideoEnabled(enabled)
     }
+    fun chatMessages(channel: String) = chatClient.messages(channel)
     fun setFullscreen(enabled: Boolean) = _uiState.update { it.copy(fullscreen = enabled) }
     fun setMaxVideoHeight(height: Int?) = playbackConnection.setMaxVideoHeight(height)
     fun togglePlayback() = playbackConnection.togglePlayback()
