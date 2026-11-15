@@ -2,6 +2,7 @@ package com.player.streameraudio.presentation.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -53,6 +54,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -166,6 +169,26 @@ fun StreamerAudioApp(viewModel: MainViewModel, onLogin: () -> Unit) {
 
     LaunchedEffect(state.errorMessage) {
         state.errorMessage?.let { snackbar.showSnackbar(it); viewModel.clearMessage() }
+    }
+    val fullscreen = state.fullscreen && state.videoEnabled && state.playback.mediaItem != null
+    val activity = LocalContext.current.findActivity()
+    // No onDispose on purpose: the activity is recreated when it rotates, and resetting the
+    // orientation while it is being destroyed would make it flip back and forth.
+    LaunchedEffect(fullscreen, activity) {
+        val window = activity?.window ?: return@LaunchedEffect
+        activity.requestedOrientation = if (fullscreen) {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        val bars = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        if (fullscreen) {
+            bars.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            bars.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        } else {
+            bars.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
     }
     LaunchedEffect(route, state.authenticated) {
         when (route) {
@@ -364,6 +387,55 @@ fun StreamerAudioApp(viewModel: MainViewModel, onLogin: () -> Unit) {
         }
         if (route == "player" && state.playback.isResolving) {
             PlaybackLoadingOverlay(state)
+        }
+        if (fullscreen) {
+            FullscreenVideo(
+                player = if (state.playback.connected) viewModel.player else null,
+                onExit = { viewModel.setFullscreen(false) }
+            )
+        }
+    }
+}
+
+private fun android.content.Context.findActivity(): android.app.Activity? {
+    var current: android.content.Context? = this
+    while (current is android.content.ContextWrapper) {
+        if (current is android.app.Activity) return current
+        current = current.baseContext
+    }
+    return null
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun FullscreenVideo(player: androidx.media3.common.Player?, onExit: () -> Unit) {
+    BackHandler(onBack = onExit)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .zIndex(30f)
+            .background(Color.Black)
+    ) {
+        AndroidView(
+            factory = { context ->
+                PlayerView(context).apply {
+                    useController = false
+                    keepScreenOn = true
+                    setBackgroundColor(android.graphics.Color.BLACK)
+                }
+            },
+            update = { view -> view.player = player },
+            onRelease = { view -> view.player = null },
+            modifier = Modifier.fillMaxSize()
+        )
+        IconButton(
+            onClick = onExit,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+                .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+        ) {
+            Icon(Icons.Default.FullscreenExit, "Exit full screen", tint = Color.White)
         }
     }
 }
@@ -1112,18 +1184,32 @@ private fun PlayerScreen(state: MainUiState, viewModel: MainViewModel) {
     ) {
         Spacer(Modifier.height(8.dp))
         if (state.videoEnabled) {
-            AndroidView(
-                factory = { context ->
-                    PlayerView(context).apply {
-                        useController = false
-                        keepScreenOn = true
-                        setBackgroundColor(android.graphics.Color.BLACK)
-                    }
-                },
-                update = { view -> view.player = videoPlayer },
-                onRelease = { view -> view.player = null },
-                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(16.dp))
-            )
+            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(16.dp)).background(Color.Black)) {
+                // While full screen is open the video is drawn there, so only one view owns the player.
+                if (!state.fullscreen) {
+                    AndroidView(
+                        factory = { context ->
+                            PlayerView(context).apply {
+                                useController = false
+                                keepScreenOn = true
+                                setBackgroundColor(android.graphics.Color.BLACK)
+                            }
+                        },
+                        update = { view -> view.player = videoPlayer },
+                        onRelease = { view -> view.player = null },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                IconButton(
+                    onClick = { viewModel.setFullscreen(true) },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+                ) {
+                    Icon(Icons.Default.Fullscreen, "Full screen", tint = Color.White)
+                }
+            }
         } else {
             AsyncImage(item.mediaMetadata.artworkUri, null, Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(24.dp)), contentScale = ContentScale.Crop)
         }
